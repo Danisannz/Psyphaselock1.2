@@ -1,0 +1,40 @@
+name: Build VST3
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Locate project
+        id: loc
+        shell: pwsh
+        run: |
+          $cm = Get-ChildItem -Path . -Recurse -Filter CMakeLists.txt | Select-Object -First 1
+          if (-not $cm) { Write-Host "::error::CMakeLists.txt nao encontrado no repositorio. Suba o conteudo da pasta PsyPhaseLock."; exit 1 }
+          "src=$($cm.DirectoryName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S "${{ steps.loc.outputs.src }}" -B build -A x64 2>&1 | Tee-Object -FilePath configure.log
+          if ($LASTEXITCODE -ne 0) {
+            Select-String -Path configure.log -Pattern 'CMake Error|error' | Select-Object -First 8 | ForEach-Object { Write-Host "::error::CONFIGURE: $($_.Line.Trim())" }
+            exit 1
+          }
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --target PsyPhaseLock_VST3 2>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE -ne 0) {
+            Select-String -Path build.log -Pattern ': (fatal )?error |LINK : |CMake Error' | Select-Object -First 10 | ForEach-Object { Write-Host "::error::BUILD: $($_.Line.Trim())" }
+            exit 1
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DaniSan-PsyPhaseLock-VST3-build-${{ github.run_number }}
+          path: build/PsyPhaseLock_artefacts/Release/VST3/
